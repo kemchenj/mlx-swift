@@ -83,3 +83,25 @@ public func valueAndGrad<T>(
 ) {
     buildValueAndGradient(f)
 }
+
+public func customVJP(
+    _ fun: @escaping (_ inputs: [MLXArray]) -> [MLXArray],
+    _ funVJP: @escaping (_ inputs: [MLXArray], _ outputs: [MLXArray], _ vjps: [MLXArray]) -> [MLXArray]
+) -> ([MLXArray]) -> ([MLXArray]) {
+    return { (arrays: [MLXArray]) in
+        let funClosure = new_mlx_closure(fun)
+        let funVJPClosure = new_mlx_closure_vjp(funVJP)
+
+        let customVJP = mlx_custom_vjp(funClosure, funVJPClosure)
+        defer {
+            mlx_free(funClosure)
+            mlx_free(funVJPClosure)
+        }
+
+        let input_vector = new_mlx_vector_array(arrays)
+        defer { mlx_free(input_vector) }
+        
+        let vjps = mlx_closure_apply(customVJP, input_vector)!
+        return mlx_vector_array_values(vjps)
+    }
+}

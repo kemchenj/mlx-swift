@@ -142,3 +142,40 @@ func new_mlx_closure(_ f: @escaping ([MLXArray]) -> [MLXArray]) -> mlx_closure {
 
     return mlx_closure_new_with_payload(trampoline, payload, free)!
 }
+
+func new_mlx_closure_vjp(_ f: @escaping ([MLXArray], [MLXArray], [MLXArray]) -> [MLXArray]) -> mlx_closure_vjp {
+
+    // holds reference to `f()` as capture state for the mlx_closure
+    class ClosureCaptureState {
+        let f: ([MLXArray], [MLXArray], [MLXArray]) -> [MLXArray]
+
+        init(_ f: @escaping ([MLXArray], [MLXArray], [MLXArray]) -> [MLXArray]) {
+            self.f = f
+        }
+    }
+
+    func free(ptr: UnsafeMutableRawPointer?) {
+        Unmanaged<ClosureCaptureState>.fromOpaque(ptr!).release()
+    }
+
+    let payload = Unmanaged.passRetained(ClosureCaptureState(f)).toOpaque()
+
+    // the C function that the mlx_closure will call -- this will convert
+    // arguments & results and call the captured `f()`
+    func trampoline(input_vector_array: mlx_vector_array?, 
+                    output_vector_array: mlx_vector_array?, 
+                    output_vjp_vector_array: mlx_vector_array?, 
+                    payload: UnsafeMutableRawPointer?)
+        -> mlx_vector_array?
+    {
+        let state = Unmanaged<ClosureCaptureState>.fromOpaque(payload!).takeUnretainedValue()
+
+        let input_arrays = mlx_vector_array_values(input_vector_array!)
+        let output_arrays = mlx_vector_array_values(output_vector_array!)
+        let output_vjp_arrays = mlx_vector_array_values(output_vjp_vector_array!)
+        let result = state.f(input_arrays, output_arrays, output_vjp_arrays)
+        return new_mlx_vector_array(result)
+    }
+
+    return mlx_closure_vjp_new_with_payload(trampoline, payload, free)!
+}
